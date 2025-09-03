@@ -1,15 +1,16 @@
-// ESP32-C3 MINI - EXPLORADOR TOTAL v6.2
-// Versión robusta con Bluetooth, exportación y historial mejorado
+// ESP32-C3 MINI - EXPLORADOR TOTAL v6.3
+// Versión corregida: Test #1 estabilizado y exportación mejorada
 #include <WiFi.h>
 #include <esp_system.h>
 #include <esp_sleep.h>
 #include <esp_chip_info.h>
 #include <soc/rtc.h>
-#include <BLEDevice.h> // Para Bluetooth
-#include <EEPROM.h>    // Para guardar historial y exportar
+#include <BLEDevice.h>
+#include <EEPROM.h>
+#include <SPIFFS.h>
 
-#define EEPROM_SIZE 4096 // Aumentado significativamente para el historial (4KB)
-#define HISTORY_MAX_LEN 4000 // Máximo de caracteres para el historial (dejar un margen para '\0')
+#define EEPROM_SIZE 4096
+#define HISTORY_MAX_LEN 4000
 
 // Estado del diagnóstico
 bool diagnosticoCompleto = false;
@@ -19,20 +20,19 @@ char historialBuffer[HISTORY_MAX_LEN];
 int historialIdx = 0;
 
 void setup() {
-  // Inicialización serial robusta
   Serial.begin(115200);
   delay(1000);
   
-  // Deshabilitar watchdog para evitar reinicios
   disableCore0WDT();
-
-  // Inicializar EEPROM
   EEPROM.begin(EEPROM_SIZE);
   
-  // Mensaje de bienvenida
+  if (!SPIFFS.begin(true)) {
+    Serial.println("⚠️ Error inicializando SPIFFS - Exportación limitada");
+  }
+  
   Serial.println("\n╔══════════════════════════════════════════════╗");
-  Serial.println("║  🚀 ESP32-C3 MINI - EXPLORADOR TOTAL v6.2   ║");
-  Serial.println("║  🔬 Diagnóstico completo con BT y Exportación║");
+  Serial.println("║  🚀 ESP32-C3 MINI - EXPLORADOR TOTAL v6.3   ║");
+  Serial.println("║  🔧 Test #1 estabilizado + Exportación real ║");
   Serial.println("╚══════════════════════════════════════════════╝");
   
   delay(500);
@@ -54,7 +54,7 @@ void loop() {
 void mostrarMenu() {
   Serial.println("\n📋 MENÚ DE EXPLORACIÓN:");
   Serial.println("┌─────────────────────────────────────────┐");
-  Serial.println("│ 1 - Información del Chip               │");
+  Serial.println("│ 1 - Información del Chip (ESTABILIZADO)│");
   Serial.println("│ 2 - Análisis de Memoria                │");
   Serial.println("│ 3 - Test de WiFi                       │");
   Serial.println("│ 4 - Test de GPIOs                      │");
@@ -64,8 +64,9 @@ void mostrarMenu() {
   Serial.println("│ 8 - Benchmark de Rendimiento           │");
   Serial.println("│ 9 - DIAGNÓSTICO COMPLETO               │");
   Serial.println("│ A - Test de Bluetooth                  │"); 
-  Serial.println("│ X - Exportar Datos (TXT)               │");
-  Serial.println("│ C - Limpiar Historial                  │"); // Nueva opción para limpiar
+  Serial.println("│ X - Exportar a archivo TXT             │");
+  Serial.println("│ Y - Mostrar archivos guardados         │");
+  Serial.println("│ C - Limpiar Historial                  │");
   Serial.println("│                                         │");
   Serial.println("│ help - Mostrar este menú               │");
   Serial.println("│ reset - Reiniciar                      │");
@@ -78,7 +79,7 @@ void ejecutarComando(String cmd) {
   Serial.println();
   
   if (cmd == "1") {
-    explorarChip();
+    explorarChipSeguro();
   }
   else if (cmd == "2") {
     explorarMemoria();
@@ -108,9 +109,12 @@ void ejecutarComando(String cmd) {
     explorarBluetooth();
   }
   else if (cmd == "X" || cmd == "x") { 
-    exportarDatos();
+    exportarDatosArchivo();
   }
-  else if (cmd == "C" || cmd == "c") { // Nuevo comando para limpiar historial
+  else if (cmd == "Y" || cmd == "y") { 
+    mostrarArchivosGuardados();
+  }
+  else if (cmd == "C" || cmd == "c") {
     limpiarHistorial();
   }
   else if (cmd == "help" || cmd == "h") {
@@ -136,73 +140,212 @@ void ejecutarComando(String cmd) {
   Serial.print("💬 Siguiente comando: ");
 }
 
-// Función para añadir texto al historial
 void addToHistory(const String& text) {
   int len = text.length();
-  // Si el texto es demasiado largo para el espacio restante,
-  // solo añade lo que quepa o recorta si es necesario
   if (historialIdx + len >= HISTORY_MAX_LEN) {
     Serial.println("⚠️ Historial de RAM casi lleno. No se puede añadir todo el texto.");
-    // Opcional: Recortar el texto para que quepa, o simplemente no añadirlo
-    len = HISTORY_MAX_LEN - 1 - historialIdx; // Deja espacio para el nulo
+    len = HISTORY_MAX_LEN - 1 - historialIdx;
     if (len <= 0) {
       Serial.println("⚠️ No hay espacio en el historial de RAM. Considera limpiarlo con 'C'.");
-      return; // No hay espacio para nada
+      return;
     }
   }
   
   memcpy(historialBuffer + historialIdx, text.c_str(), len);
   historialIdx += len;
-  historialBuffer[historialIdx] = '\0'; // Asegurar terminador nulo
+  historialBuffer[historialIdx] = '\0';
 }
 
 void limpiarHistorial() {
   historialIdx = 0;
-  memset(historialBuffer, 0, HISTORY_MAX_LEN); // Limpiar buffer con ceros
+  memset(historialBuffer, 0, HISTORY_MAX_LEN);
   Serial.println("🗑️ Historial de comandos en RAM limpiado.");
-  addToHistory("--- Historial limpiado manualmente ---\n"); // Añadir un marcador
+  addToHistory("--- Historial limpiado manualmente ---\n");
 }
 
-
-// === 1. EXPLORACIÓN DEL CHIP ===
-void explorarChip() {
-  String output = "\n🔍 ANÁLISIS DEL CHIP ESP32-C3\n";
-  output += "===============================\n";
+// === 1. EXPLORACIÓN DEL CHIP - VERSIÓN ESTABILIZADA ===
+void explorarChipSeguro() {
+  String output = "\n🔍 ANÁLISIS DEL CHIP ESP32-C3 (ESTABILIZADO)\n";
+  output += "============================================\n";
   
   esp_chip_info_t chip_info;
   esp_chip_info(&chip_info);
   
-  output += "📋 IDENTIFICACIÓN:\n";
-  output += "• Modelo: " + String(ESP.getChipModel()) + "\n";
-  output += "• Revisión: " + String(ESP.getChipRevision()) + "\n";
-  output += "• Núcleos: " + String(chip_info.cores) + "\n";
+  output += "📋 IDENTIFICACIÓN BÁSICA:\n";
+  output += "• Familia: ESP32-C3\n";
   output += "• Arquitectura: RISC-V 32-bit\n";
-  output += "• WiFi: " + String(chip_info.features & CHIP_FEATURE_WIFI_BGN ? "SÍ" : "NO") + "\n";
-  output += "• Bluetooth: " + String(chip_info.features & CHIP_FEATURE_BT ? "SÍ" : "NO") + "\n";
+  output += "• Núcleos: " + String(chip_info.cores) + "\n";
   
+  output += "• WiFi: " + String(chip_info.features & CHIP_FEATURE_WIFI_BGN ? "✅ SÍ" : "❌ NO") + "\n";
+  output += "• Bluetooth: " + String(chip_info.features & CHIP_FEATURE_BT ? "✅ SÍ" : "❌ NO") + "\n";
+  
+  uint8_t revision = chip_info.revision;
+  output += "• Revisión: " + String(revision) + "\n";
+  
+  // Método más seguro para ID del chip usando MAC
   uint64_t chipId = ESP.getEfuseMac();
   char chipIdStr[20];
-  sprintf(chipIdStr, "• Chip ID: %04X%08X\n", (uint16_t)(chipId>>32), (uint32_t)chipId);
-  output += String(chipIdStr);
+  sprintf(chipIdStr, "%04X%08X", (uint16_t)(chipId>>32), (uint32_t)chipId);
+  output += "• Chip ID: " + String(chipIdStr) + "\n";
   
-  output += "\n💾 MEMORIA FLASH:\n";
+  output += "\n💾 INFORMACIÓN DE FLASH:\n";
   uint32_t flashSize = ESP.getFlashChipSize();
-  output += "• Tamaño: " + String(flashSize/(1024*1024)) + " MB\n";
-  output += "• Velocidad: " + String(ESP.getFlashChipSpeed()/1000000) + " MHz\n";
-  output += "• Modo: " + getFlashModeStr() + "\n";
+  if (flashSize > 0) {
+    output += "• Tamaño: " + String(flashSize/(1024*1024)) + " MB\n";
+    output += "• Velocidad: " + String(ESP.getFlashChipSpeed()/1000000) + " MHz\n";
+  } else {
+    output += "• Tamaño: No determinado\n";
+  }
   
-  output += "\n📊 PROGRAMA ACTUAL:\n";
-  output += "• Tamaño sketch: " + String(ESP.getSketchSize()/1024) + " KB\n";
-  output += "• Espacio libre: " + String(ESP.getFreeSketchSpace()/1024) + " KB\n";
-  output += "• SDK Version: " + String(ESP.getSdkVersion()) + "\n";
+  size_t sketchSize = ESP.getSketchSize();
+  size_t freeSpace = ESP.getFreeSketchSpace();
   
-  output += "\n✅ Análisis del chip completado\n";
+  output += "• Tamaño sketch: " + String(sketchSize/1024) + " KB\n";
+  output += "• Espacio libre: " + String(freeSpace/1024) + " KB\n";
+  
+  output += "• SDK Version: " + String(esp_get_idf_version()) + "\n";
+  
+  output += "\n✅ Análisis del chip completado (modo seguro)\n";
+  output += "ℹ️ Esta versión evita llamadas que pueden causar reinicios\n";
 
   Serial.print(output);
   addToHistory(output);
 }
 
-// === 2. EXPLORACIÓN DE MEMORIA ===
+// === X. EXPORTAR DATOS - VERSIÓN MEJORADA CON ARCHIVOS REALES ===
+void exportarDatosArchivo() {
+  Serial.println("\n📤 EXPORTACIÓN DE DATOS MEJORADA");
+  Serial.println("=================================");
+  
+  if (historialIdx == 0) {
+    Serial.println("❌ No hay datos en el historial para exportar.");
+    Serial.println("💡 Ejecuta algún comando o el 'DIAGNÓSTICO COMPLETO' (9) primero.");
+    return;
+  }
+
+  String timestamp = String(millis());
+  String nombreArchivo = "/diagnostico_" + timestamp + ".txt";
+  
+  Serial.println("💾 Creando archivo: " + nombreArchivo);
+  
+  File archivo = SPIFFS.open(nombreArchivo, "w");
+  
+  if (archivo) {
+    archivo.println("ESP32-C3 MINI - DIAGNOSTICO COMPLETO");
+    archivo.println("====================================");
+    archivo.println("Generado: " + String(millis()/1000) + " segundos desde inicio");
+    archivo.println("Archivo: " + nombreArchivo);
+    archivo.println("");
+    
+    archivo.write((uint8_t*)historialBuffer, historialIdx);
+    
+    archivo.println("");
+    archivo.println("====================================");
+    archivo.println("Fin del diagnóstico - ESP32-C3 MINI");
+    
+    archivo.close();
+    
+    File archivoVerif = SPIFFS.open(nombreArchivo, "r");
+    size_t tamano = archivoVerif.size();
+    archivoVerif.close();
+    
+    Serial.println("✅ Archivo creado exitosamente!");
+    Serial.println("📁 Nombre: " + nombreArchivo);
+    Serial.println("📊 Tamaño: " + String(tamano) + " bytes");
+    Serial.println("");
+    Serial.println("🎯 OPCIONES DE ACCESO:");
+    Serial.println("1. Usar comando 'Y' para ver contenido");
+    Serial.println("2. Conectar ESP32 como dispositivo de almacenamiento USB*");
+    Serial.println("3. Usar herramientas como ESP32 File System Uploader");
+    Serial.println("");
+    Serial.println("*Requiere código adicional para USB Mass Storage");
+    
+    Serial.println("💾 Guardando respaldo en EEPROM...");
+    int bytesToSave = min(historialIdx, EEPROM_SIZE - 1);
+    for (int i = 0; i < bytesToSave; i++) {
+      EEPROM.write(i, historialBuffer[i]);
+    }
+    EEPROM.write(bytesToSave, '\0');
+    EEPROM.commit();
+    Serial.println("✅ Respaldo en EEPROM guardado (" + String(bytesToSave) + " bytes)");
+    
+  } else {
+    Serial.println("❌ Error al crear archivo en SPIFFS");
+    Serial.println("🔄 Usando método de respaldo (EEPROM + copy/paste):");
+    
+    Serial.println("💾 Guardando historial en EEPROM...");
+    int bytesToSave = min(historialIdx, EEPROM_SIZE - 1);
+    for (int i = 0; i < bytesToSave; i++) {
+      EEPROM.write(i, historialBuffer[i]);
+    }
+    EEPROM.write(bytesToSave, '\0');
+    EEPROM.commit();
+
+    Serial.println("✅ Historial guardado en EEPROM. (" + String(bytesToSave) + " bytes)");
+    Serial.println("⬇️ Copia el siguiente texto para exportar:");
+    Serial.println("```text");
+    
+    for (int i = 0; i < bytesToSave; i++) {
+      Serial.print((char)EEPROM.read(i));
+    }
+    Serial.println("\n```");
+    Serial.println("\n💡 Puedes pegar este texto en un archivo .txt");
+  }
+}
+
+void mostrarArchivosGuardados() {
+  Serial.println("\n📁 ARCHIVOS GUARDADOS EN SPIFFS");
+  Serial.println("================================");
+  
+  File root = SPIFFS.open("/");
+  if (!root) {
+    Serial.println("❌ Error al acceder al sistema de archivos");
+    return;
+  }
+  
+  if (!root.isDirectory()) {
+    Serial.println("❌ Error: Raíz no es un directorio");
+    return;
+  }
+  
+  File file = root.openNextFile();
+  int contador = 0;
+  
+  while (file) {
+    if (!file.isDirectory()) {
+      contador++;
+      Serial.println("📄 " + String(file.name()) + " (" + String(file.size()) + " bytes)");
+      
+      String nombre = String(file.name());
+      if (nombre.startsWith("/diagnostico_") && nombre.endsWith(".txt")) {
+        Serial.println("   📋 Contenido (primeras líneas):");
+        file.seek(0);
+        String linea;
+        int lineas = 0;
+        while (file.available() && lineas < 5) {
+          linea = file.readStringUntil('\n');
+          Serial.println("   " + linea);
+          lineas++;
+        }
+        if (file.available()) {
+          Serial.println("   ... (archivo continúa)");
+        }
+        Serial.println("");
+      }
+    }
+    file = root.openNextFile();
+  }
+  
+  if (contador == 0) {
+    Serial.println("📭 No hay archivos guardados");
+    Serial.println("💡 Usa el comando 'X' después de hacer un diagnóstico");
+  } else {
+    Serial.println("📊 Total de archivos: " + String(contador));
+    Serial.println("💾 Espacio usado: " + String(SPIFFS.usedBytes()) + " bytes");
+    Serial.println("💾 Espacio total: " + String(SPIFFS.totalBytes()) + " bytes");
+  }
+}
+
 void explorarMemoria() {
   String output = "\n🧠 ANÁLISIS DE MEMORIA\n";
   output += "=======================\n";
@@ -242,7 +385,6 @@ void explorarMemoria() {
   addToHistory(output);
 }
 
-// === 3. EXPLORACIÓN DE WIFI ===
 void explorarWiFi() {
   String output = "\n📶 ANÁLISIS DE WIFI\n";
   output += "====================\n";
@@ -257,7 +399,7 @@ void explorarWiFi() {
   output += "• Modo: Station (STA)\n";
   
   output += "\n🔍 ESCANEANDO REDES...\n";
-  Serial.print(output); // Imprimir hasta aquí para ver el progreso del scan
+  Serial.print(output);
   addToHistory(output);
 
   Serial.print("⏳ ");
@@ -265,7 +407,7 @@ void explorarWiFi() {
   int redes = WiFi.scanNetworks(false, true, false, 300);
   Serial.println("¡Completado!");
   
-  output = ""; // Limpiar output para añadir resultados del scan
+  output = "";
   if (redes > 0) {
     output += "\n📋 REDES ENCONTRADAS (" + String(redes) + "):\n";
     
@@ -295,7 +437,6 @@ void explorarWiFi() {
   addToHistory(output);
 }
 
-// === 4. EXPLORACIÓN SEGURA DE GPIOS ===
 void explorarGPIOs() {
   String output = "\n🔌 ANÁLISIS DE GPIOS\n";
   output += "=====================\n";
@@ -343,8 +484,8 @@ void explorarGPIOs() {
       currentPinOutput += "⚠️ Problemático\n";
       problemáticos += String(pin) + " ";
     }
-    output += currentPinOutput; // Añadir el resultado del pin al output
-    Serial.print(currentPinOutput); // Imprimir también al serial
+    output += currentPinOutput;
+    Serial.print(currentPinOutput);
     delay(50);
   }
   
@@ -356,11 +497,10 @@ void explorarGPIOs() {
   
   output += "\n✅ Análisis de GPIOs completado\n";
 
-  Serial.print(output.substring(output.indexOf("📊 RESUMEN:"))); // Imprimir resumen final si no se hizo antes
+  Serial.print(output.substring(output.indexOf("📊 RESUMEN:")));
   addToHistory(output);
 }
 
-// === 5. EXPLORACIÓN DEL SISTEMA ===
 void explorarSistema() {
   String output = "\n⚙️ ANÁLISIS DEL SISTEMA\n";
   output += "========================\n";
@@ -385,7 +525,6 @@ void explorarSistema() {
   addToHistory(output);
 }
 
-// === 6. EXPLORACIÓN DE SENSORES ===
 void explorarSensores() {
   String output = "\n🌡️ ANÁLISIS DE SENSORES\n";
   output += "=========================\n";
@@ -429,14 +568,12 @@ void explorarSensores() {
   
   output += "\n✅ Análisis de sensores completado\n";
 
-  // Serial.print(output); // Ya se imprimió parte
   addToHistory(output);
 }
 
-// === 7. TEST DE LEDS ===
 void testLEDs() {
   String output = "\n💡 TEST DE LEDS\n";
-  output += "================"; // No añadir \n aquí, se añade después de la línea de cabecera en Serial.print
+  output += "================";
   
   int candidatos[] = {2, 3, 7, 8, 10};
   String nombres[] = {"GPIO2", "GPIO3", "GPIO7", "GPIO8", "GPIO10"};
@@ -447,7 +584,7 @@ void testLEDs() {
 
   Serial.print(output);
   addToHistory(output);
-  output = ""; // Limpiar para el loop
+  output = "";
 
   for (int i = 0; i < total; i++) {
     int pin = candidatos[i];
@@ -481,13 +618,12 @@ void testLEDs() {
   addToHistory(output);
 }
 
-// === 8. BENCHMARK DE RENDIMIENTO ===
 void benchmark() {
   String output = "\n🏃 BENCHMARK DE RENDIMIENTO\n";
   output += "============================\n";
   
   output += "🧮 Test matemático (10k operaciones)... ";
-  Serial.print(output); // Imprimir hasta aquí para ver el progreso
+  Serial.print(output);
   addToHistory(output);
   output = "";
 
@@ -501,7 +637,7 @@ void benchmark() {
   Serial.println(String(tiempoMath) + " μs");
   
   output += "⚡ Test GPIO (5k toggles)... ";
-  Serial.print(output); // Imprimir hasta aquí
+  Serial.print(output);
   addToHistory(output);
   output = "";
 
@@ -516,7 +652,7 @@ void benchmark() {
   Serial.println(String(tiempoGPIO) + " μs");
   
   output += "💾 Test memoria (concatenación)... ";
-  Serial.print(output); // Imprimir hasta aquí
+  Serial.print(output);
   addToHistory(output);
   output = "";
 
@@ -540,12 +676,7 @@ void benchmark() {
   addToHistory(output);
 }
 
-
-// ===================================================================
-// === A. EXPLORACIÓN DE BLUETOOTH (v4 - Corrección de Puntero) ===
-// ===================================================================
-
-// Esta clase de callback no necesita cambios
+// Clase de callback para Bluetooth
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice advertisedDevice) {
       String msg = "  BLE Device found: ";
@@ -570,7 +701,6 @@ void explorarBluetooth() {
   Serial.print(output);
   addToHistory(output);
 
-  // Inicializar BLE (si no está ya inicializado)
   if (!BLEDevice::getInitialized()) {
     BLEDevice::init("");
     BLEDevice::setPower(ESP_PWR_LVL_P9);
@@ -600,12 +730,9 @@ void explorarBluetooth() {
     delay(50); 
   }
   
-  // === LÍNEA CORREGIDA ===
-  // Se declara como un puntero BLEScanResults*
   BLEScanResults* foundDevices = pBLEScan->getResults();
   
   String summary = "\n📊 RESUMEN DE ESCANEO BLE:\n";
-  // Se usa el operador de puntero "->" para acceder a getCount()
   summary += "• Dispositivos encontrados: " + String(foundDevices->getCount()) + "\n";
   
   if (foundDevices->getCount() == 0) {
@@ -617,20 +744,17 @@ void explorarBluetooth() {
   addToHistory(summary);
 
   pBLEScan->clearResults(); 
-  // BLEDevice::deinit(); 
 }
 
-// === 9. DIAGNÓSTICO TOTAL ===
 void diagnosticoTotal() {
   Serial.println("\n🔬 DIAGNÓSTICO COMPLETO");
   Serial.println("========================");
   Serial.println("⏳ Ejecutando todos los análisis...\n");
   
-  // Limpiar historial al inicio de un diagnóstico completo
-  limpiarHistorial(); // Usar la nueva función de limpieza
+  limpiarHistorial();
   addToHistory("--- INICIO DIAGNÓSTICO COMPLETO ---\n\n");
 
-  explorarChip();
+  explorarChipSeguro();
   delay(1000);
   
   explorarMemoria();
@@ -649,6 +773,7 @@ void diagnosticoTotal() {
   delay(1000);
   
   benchmark();
+  delay(1000);
 
   explorarBluetooth(); 
   
@@ -659,51 +784,7 @@ void diagnosticoTotal() {
   addToHistory("\n--- FIN DIAGNÓSTICO COMPLETO ---\n");
 }
 
-// === X. EXPORTAR DATOS ===
-void exportarDatos() {
-  Serial.println("\n📤 EXPORTACIÓN DE DATOS");
-  Serial.println("========================");
-  
-  if (historialIdx == 0) {
-    Serial.println("❌ No hay datos en el historial para exportar.");
-    Serial.println("💡 Ejecuta algún comando o el 'DIAGNÓSTICO COMPLETO' (9) primero.");
-    return;
-  }
-
-  Serial.println("💾 Guardando historial en EEPROM...");
-  // Guardar el historial en la EEPROM
-  // Asegurarse de no exceder el tamaño de la EEPROM
-  int bytesToSave = min(historialIdx, EEPROM_SIZE - 1); // Deja espacio para el terminador nulo
-  for (int i = 0; i < bytesToSave; i++) {
-    EEPROM.write(i, historialBuffer[i]);
-  }
-  EEPROM.write(bytesToSave, '\0'); // Asegurar terminador nulo
-  EEPROM.commit(); // Guardar cambios en la EEPROM
-
-  Serial.println("✅ Historial guardado en EEPROM. (" + String(bytesToSave) + " bytes)");
-  Serial.println("⬇️ Copia el siguiente texto para exportar:");
-  Serial.println("```text"); // Inicio del bloque de texto para facilitar la copia
-  
-  // Leer y enviar desde EEPROM para asegurar que se guardó correctamente
-  for (int i = 0; i < bytesToSave; i++) {
-    Serial.print((char)EEPROM.read(i));
-  }
-  Serial.println("\n```"); // Fin del bloque de texto
-  Serial.println("\n💡 Puedes pegar este texto en un archivo .txt");
-}
-
-
 // === FUNCIONES AUXILIARES ===
-String getFlashModeStr() {
-  switch(ESP.getFlashChipMode()) {
-    case FM_QIO: return "QIO";
-    case FM_QOUT: return "QOUT"; 
-    case FM_DIO: return "DIO";
-    case FM_DOUT: return "DOUT";
-    default: return "Desconocido";
-  }
-}
-
 String getResetReason() {
   switch(esp_reset_reason()) {
     case ESP_RST_POWERON: return "Power-On";
