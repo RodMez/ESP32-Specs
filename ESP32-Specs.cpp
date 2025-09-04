@@ -1,5 +1,5 @@
-// ESP32-C3 MINI - EXPLORADOR TOTAL v6.3
-// Versión corregida: Test #1 estabilizado y exportación mejorada
+// ESP32-C3 MINI - EXPLORADOR TOTAL v6.4
+// Versión con Web File Manager integrado
 #include <WiFi.h>
 #include <esp_system.h>
 #include <esp_sleep.h>
@@ -8,6 +8,8 @@
 #include <BLEDevice.h>
 #include <EEPROM.h>
 #include <SPIFFS.h>
+#include <WebServer.h>
+#include <WiFiAP.h>
 
 #define EEPROM_SIZE 4096
 #define HISTORY_MAX_LEN 4000
@@ -18,6 +20,12 @@ bool diagnosticoCompleto = false;
 // Buffer para almacenar el historial de resultados
 char historialBuffer[HISTORY_MAX_LEN];
 int historialIdx = 0;
+
+// Variables para el servidor web
+WebServer server(80);
+const char* ap_ssid = "ESP32-FileManager";
+const char* ap_password = "12345678";
+bool servidorWebActivo = false;
 
 void setup() {
   Serial.begin(115200);
@@ -30,10 +38,10 @@ void setup() {
     Serial.println("⚠️ Error inicializando SPIFFS - Exportación limitada");
   }
   
-  Serial.println("\n╔══════════════════════════════════════════════╗");
-  Serial.println("║  🚀 ESP32-C3 MINI - EXPLORADOR TOTAL v6.3   ║");
-  Serial.println("║  🔧 Test #1 estabilizado + Exportación real ║");
-  Serial.println("╚══════════════════════════════════════════════╝");
+  Serial.println("\n╔═══════════════════════════════════════════╗");
+  Serial.println("║  🚀 ESP32-C3 MINI - EXPLORADOR TOTAL v6.4   ║");
+  Serial.println("║  🔧 Con Web File Manager integrado        ║");
+  Serial.println("╚═══════════════════════════════════════════╝");
   
   delay(500);
   mostrarMenu();
@@ -48,6 +56,12 @@ void loop() {
       ejecutarComando(comando);
     }
   }
+  
+  // Manejar servidor web si está activo
+  if (servidorWebActivo) {
+    server.handleClient();
+  }
+  
   delay(100);
 }
 
@@ -64,6 +78,7 @@ void mostrarMenu() {
   Serial.println("│ 8 - Benchmark de Rendimiento           │");
   Serial.println("│ 9 - DIAGNÓSTICO COMPLETO               │");
   Serial.println("│ A - Test de Bluetooth                  │"); 
+  Serial.println("│ W - Iniciar Servidor Web 🌐 NUEVO!     │");
   Serial.println("│ X - Exportar a archivo TXT             │");
   Serial.println("│ Y - Mostrar archivos guardados         │");
   Serial.println("│ C - Limpiar Historial                  │");
@@ -108,6 +123,9 @@ void ejecutarComando(String cmd) {
   else if (cmd == "A" || cmd == "a") { 
     explorarBluetooth();
   }
+  else if (cmd == "W" || cmd == "w") { 
+    comandoWebServer();
+  }
   else if (cmd == "X" || cmd == "x") { 
     exportarDatosArchivo();
   }
@@ -139,6 +157,180 @@ void ejecutarComando(String cmd) {
   Serial.println("\n" + String(char(196)) + String(char(196)) + String(char(196)) + " Listo " + String(char(196)) + String(char(196)) + String(char(196)));
   Serial.print("💬 Siguiente comando: ");
 }
+
+// === FUNCIONES DEL SERVIDOR WEB ===
+
+void iniciarServidorWeb() {
+  // Crear punto de acceso WiFi
+  WiFi.softAP(ap_ssid, ap_password);
+  IPAddress IP = WiFi.softAPIP();
+  
+  Serial.println("🌐 SERVIDOR WEB INICIADO");
+  Serial.println("📡 Red WiFi: " + String(ap_ssid));
+  Serial.println("🔑 Password: " + String(ap_password));
+  Serial.println("🌍 IP: http://" + IP.toString());
+  
+  // Rutas del servidor
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/list", HTTP_GET, handleFileList);
+  server.on("/download", HTTP_GET, handleFileDownload);
+  server.on("/delete", HTTP_GET, handleFileDelete);
+  
+  server.begin();
+  servidorWebActivo = true;
+  Serial.println("✅ Servidor web activo en puerto 80");
+}
+
+void comandoWebServer() {
+  Serial.println("\n🌐 INICIANDO SERVIDOR WEB");
+  Serial.println("==========================");
+  
+  iniciarServidorWeb();
+  
+  Serial.println("\n📱 INSTRUCCIONES:");
+  Serial.println("1. Conecta tu teléfono/PC a la red WiFi: " + String(ap_ssid));
+  Serial.println("2. Usa la contraseña: " + String(ap_password));
+  Serial.println("3. Abre el navegador y ve a: http://192.168.4.1");
+  Serial.println("4. ¡Ya puedes descargar tus archivos!");
+  Serial.println("\n⚠️ El servidor quedará activo. Usa 'reset' para reiniciar.");
+}
+
+// Página principal del servidor web
+void handleRoot() {
+  String html = "<!DOCTYPE html><html><head>";
+  html += "<title>ESP32 File Manager</title>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<style>";
+  html += "body { font-family: Arial; margin: 20px; background: #f0f0f0; }";
+  html += ".container { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }";
+  html += ".file-item { background: #f8f9fa; margin: 10px 0; padding: 15px; border-radius: 5px; border-left: 4px solid #007bff; display: flex; justify-content: space-between; align-items: center; }";
+  html += ".file-info { flex-grow: 1; }";
+  html += ".file-name { font-weight: bold; color: #333; }";
+  html += ".file-size { color: #666; font-size: 0.9em; }";
+  html += ".btn { padding: 8px 15px; margin: 0 5px; text-decoration: none; border-radius: 4px; font-size: 0.9em; display: inline-block; }";
+  html += ".btn-download { background: #28a745; color: white; }";
+  html += ".btn-delete { background: #dc3545; color: white; }";
+  html += ".btn:hover { opacity: 0.8; }";
+  html += ".header { text-align: center; margin-bottom: 30px; }";
+  html += ".header h1 { color: #333; }";
+  html += ".stats { background: #e3f2fd; padding: 15px; border-radius: 5px; margin-bottom: 20px; }";
+  html += "</style></head><body>";
+  
+  html += "<div class='container'>";
+  html += "<div class='header'>";
+  html += "<h1>ESP32 File Manager</h1>";
+  html += "<p>Administra archivos del sistema SPIFFS</p>";
+  html += "</div>";
+  html += "<div id='stats' class='stats'>Cargando estadisticas...</div>";
+  html += "<div id='files'>Cargando archivos...</div>";
+  html += "</div>";
+  
+  html += "<script>";
+  html += "function loadFiles() {";
+  html += "  fetch('/list').then(response => response.json()).then(data => {";
+  html += "    document.getElementById('stats').innerHTML = 'Archivos: ' + data.files.length + ' | Usado: ' + data.used + ' bytes | Total: ' + data.total + ' bytes';";
+  html += "    let html = '';";
+  html += "    data.files.forEach(file => {";
+  html += "      html += '<div class=\"file-item\">';";
+  html += "      html += '<div class=\"file-info\">';";
+  html += "      html += '<div class=\"file-name\">' + file.name + '</div>';";
+  html += "      html += '<div class=\"file-size\">' + file.size + ' bytes</div>';";
+  html += "      html += '</div>';";
+  html += "      html += '<div>';";
+  html += "      html += '<a href=\"/download?file=' + encodeURIComponent(file.name) + '\" class=\"btn btn-download\">Descargar</a>';";
+  html += "      html += '<a href=\"/delete?file=' + encodeURIComponent(file.name) + '\" class=\"btn btn-delete\" onclick=\"return confirm(\\'Eliminar ' + file.name + '?\\')\">Eliminar</a>';";
+  html += "      html += '</div>';";
+  html += "      html += '</div>';";
+  html += "    });";
+  html += "    if (data.files.length === 0) {";
+  html += "      html = '<div class=\"file-item\"><div class=\"file-info\">No hay archivos guardados</div></div>';";
+  html += "    }";
+  html += "    document.getElementById('files').innerHTML = html;";
+  html += "  }).catch(err => {";
+  html += "    document.getElementById('files').innerHTML = '<div class=\"file-item\"><div class=\"file-info\">Error cargando archivos</div></div>';";
+  html += "  });";
+  html += "}";
+  html += "loadFiles();";
+  html += "setInterval(loadFiles, 5000);";
+  html += "</script>";
+  html += "</body></html>";
+  
+  server.send(200, "text/html", html);
+}
+
+// Listar archivos (JSON)
+void handleFileList() {
+  String json = "{\"files\":[";
+  
+  File root = SPIFFS.open("/");
+  File file = root.openNextFile();
+  bool first = true;
+  
+  while (file) {
+    if (!file.isDirectory()) {
+      if (!first) json += ",";
+      json += "{";
+      json += "\"name\":\"" + String(file.name()) + "\",";
+      json += "\"size\":" + String(file.size());
+      json += "}";
+      first = false;
+    }
+    file = root.openNextFile();
+  }
+  
+  json += "],";
+  json += "\"used\":" + String(SPIFFS.usedBytes()) + ",";
+  json += "\"total\":" + String(SPIFFS.totalBytes());
+  json += "}";
+  
+  server.send(200, "application/json", json);
+}
+
+// Descargar archivo
+void handleFileDownload() {
+  if (!server.hasArg("file")) {
+    server.send(400, "text/plain", "Parámetro 'file' requerido");
+    return;
+  }
+  
+  String filename = server.arg("file");
+  File file = SPIFFS.open(filename, "r");
+  
+  if (!file) {
+    server.send(404, "text/plain", "Archivo no encontrado");
+    return;
+  }
+  
+  // Configurar headers para descarga
+  server.sendHeader("Content-Disposition", "attachment; filename=" + filename);
+  server.sendHeader("Content-Type", "text/plain");
+  server.sendHeader("Content-Length", String(file.size()));
+  
+  // Enviar archivo
+  server.streamFile(file, "text/plain");
+  file.close();
+  
+  Serial.println("📥 Archivo descargado: " + filename);
+}
+
+// Eliminar archivo
+void handleFileDelete() {
+  if (!server.hasArg("file")) {
+    server.send(400, "text/plain", "Parámetro 'file' requerido");
+    return;
+  }
+  
+  String filename = server.arg("file");
+  
+  if (SPIFFS.remove(filename)) {
+    server.send(200, "text/plain", "Archivo eliminado: " + filename);
+    Serial.println("🗑️ Archivo eliminado: " + filename);
+  } else {
+    server.send(500, "text/plain", "Error eliminando archivo");
+  }
+}
+
+// === FUNCIONES ORIGINALES ===
 
 void addToHistory(const String& text) {
   int len = text.length();
@@ -250,13 +442,13 @@ void exportarDatosArchivo() {
     archivoVerif.close();
     
     Serial.println("✅ Archivo creado exitosamente!");
-    Serial.println("📁 Nombre: " + nombreArchivo);
+    Serial.println("📄 Nombre: " + nombreArchivo);
     Serial.println("📊 Tamaño: " + String(tamano) + " bytes");
     Serial.println("");
     Serial.println("🎯 OPCIONES DE ACCESO:");
-    Serial.println("1. Usar comando 'Y' para ver contenido");
-    Serial.println("2. Conectar ESP32 como dispositivo de almacenamiento USB*");
-    Serial.println("3. Usar herramientas como ESP32 File System Uploader");
+    Serial.println("1. Usar comando 'W' para servidor web");
+    Serial.println("2. Usar comando 'Y' para ver contenido");
+    Serial.println("3. Conectar ESP32 como dispositivo USB*");
     Serial.println("");
     Serial.println("*Requiere código adicional para USB Mass Storage");
     
@@ -337,12 +529,15 @@ void mostrarArchivosGuardados() {
   }
   
   if (contador == 0) {
-    Serial.println("📭 No hay archivos guardados");
+    Serial.println("🔭 No hay archivos guardados");
     Serial.println("💡 Usa el comando 'X' después de hacer un diagnóstico");
   } else {
     Serial.println("📊 Total de archivos: " + String(contador));
     Serial.println("💾 Espacio usado: " + String(SPIFFS.usedBytes()) + " bytes");
     Serial.println("💾 Espacio total: " + String(SPIFFS.totalBytes()) + " bytes");
+    if (!servidorWebActivo) {
+      Serial.println("💡 Usa el comando 'W' para acceso web a los archivos");
+    }
   }
 }
 
@@ -416,7 +611,7 @@ void explorarWiFi() {
       String intensidad = getRSSIQuality(WiFi.RSSI(i));
       
       output += "  " + String(i+1) + ". " + WiFi.SSID(i) + "\n";
-      output += "     🔐 " + seguridad + " | 📶 " + intensidad + 
+      output += "     🔒 " + seguridad + " | 📶 " + intensidad + 
                     " (" + String(WiFi.RSSI(i)) + "dBm) | 📺 Ch" + String(WiFi.channel(i)) + "\n";
       
       delay(10);
@@ -444,7 +639,7 @@ void explorarGPIOs() {
   int gpios[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 10};
   int total = sizeof(gpios)/sizeof(gpios[0]);
   
-  output += "📍 PINES DISPONIBLES:\n";
+  output += "🔍 PINES DISPONIBLES:\n";
   output += "• Testeando: ";
   for(int i = 0; i < total; i++) {
     output += String(gpios[i]);
@@ -518,6 +713,13 @@ void explorarSistema() {
   output += "\n🔋 GESTIÓN DE ENERGÍA:\n";
   output += "• Wake-up causa: " + String(esp_sleep_get_wakeup_cause()) + "\n";
   output += "• Modo actual: Rendimiento normal\n";
+  
+  if (servidorWebActivo) {
+    output += "\n🌐 SERVIDOR WEB:\n";
+    output += "• Estado: ✅ Activo\n";
+    output += "• Red: " + String(ap_ssid) + "\n";
+    output += "• IP: http://192.168.4.1\n";
+  }
   
   output += "\n✅ Análisis del sistema completado\n";
 
@@ -780,6 +982,7 @@ void diagnosticoTotal() {
   Serial.println("\n🎉 DIAGNÓSTICO COMPLETO TERMINADO");
   Serial.println("📊 Todos los sistemas han sido analizados exitosamente");
   Serial.println("ℹ️ Usa el comando 'X' para exportar los resultados a un archivo TXT.");
+  Serial.println("🌐 Usa el comando 'W' para acceso web a los archivos.");
   diagnosticoCompleto = true;
   addToHistory("\n--- FIN DIAGNÓSTICO COMPLETO ---\n");
 }
