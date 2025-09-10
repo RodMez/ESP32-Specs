@@ -195,98 +195,7 @@ void comandoWebServer() {
   Serial.println("\n⚠️ El servidor quedará activo. Usa 'reset' para reiniciar.");
 }
 
-// Página principal del servidor web
-void handleRoot() {
-  String html = "<!DOCTYPE html><html><head>";
-  html += "<title>ESP32 File Manager</title>";
-  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
-  html += "<style>";
-  html += "body { font-family: Arial; margin: 20px; background: #f0f0f0; }";
-  html += ".container { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }";
-  html += ".file-item { background: #f8f9fa; margin: 10px 0; padding: 15px; border-radius: 5px; border-left: 4px solid #007bff; display: flex; justify-content: space-between; align-items: center; }";
-  html += ".file-info { flex-grow: 1; }";
-  html += ".file-name { font-weight: bold; color: #333; }";
-  html += ".file-size { color: #666; font-size: 0.9em; }";
-  html += ".btn { padding: 8px 15px; margin: 0 5px; text-decoration: none; border-radius: 4px; font-size: 0.9em; display: inline-block; }";
-  html += ".btn-download { background: #28a745; color: white; }";
-  html += ".btn-delete { background: #dc3545; color: white; }";
-  html += ".btn:hover { opacity: 0.8; }";
-  html += ".header { text-align: center; margin-bottom: 30px; }";
-  html += ".header h1 { color: #333; }";
-  html += ".stats { background: #e3f2fd; padding: 15px; border-radius: 5px; margin-bottom: 20px; }";
-  html += "</style></head><body>";
-  
-  html += "<div class='container'>";
-  html += "<div class='header'>";
-  html += "<h1>ESP32 File Manager</h1>";
-  html += "<p>Administra archivos del sistema SPIFFS</p>";
-  html += "</div>";
-  html += "<div id='stats' class='stats'>Cargando estadisticas...</div>";
-  html += "<div id='files'>Cargando archivos...</div>";
-  html += "</div>";
-  
-  html += "<script>";
-  html += "function loadFiles() {";
-  html += "  fetch('/list').then(response => response.json()).then(data => {";
-  html += "    document.getElementById('stats').innerHTML = 'Archivos: ' + data.files.length + ' | Usado: ' + data.used + ' bytes | Total: ' + data.total + ' bytes';";
-  html += "    let html = '';";
-  html += "    data.files.forEach(file => {";
-  html += "      html += '<div class=\"file-item\">';";
-  html += "      html += '<div class=\"file-info\">';";
-  html += "      html += '<div class=\"file-name\">' + file.name + '</div>';";
-  html += "      html += '<div class=\"file-size\">' + file.size + ' bytes</div>';";
-  html += "      html += '</div>';";
-  html += "      html += '<div>';";
-  html += "      html += '<a href=\"/download?file=' + encodeURIComponent(file.name) + '\" class=\"btn btn-download\">Descargar</a>';";
-  html += "      html += '<a href=\"/delete?file=' + encodeURIComponent(file.name) + '\" class=\"btn btn-delete\" onclick=\"return confirm(\\'Eliminar ' + file.name + '?\\')\">Eliminar</a>';";
-  html += "      html += '</div>';";
-  html += "      html += '</div>';";
-  html += "    });";
-  html += "    if (data.files.length === 0) {";
-  html += "      html = '<div class=\"file-item\"><div class=\"file-info\">No hay archivos guardados</div></div>';";
-  html += "    }";
-  html += "    document.getElementById('files').innerHTML = html;";
-  html += "  }).catch(err => {";
-  html += "    document.getElementById('files').innerHTML = '<div class=\"file-item\"><div class=\"file-info\">Error cargando archivos</div></div>';";
-  html += "  });";
-  html += "}";
-  html += "loadFiles();";
-  html += "setInterval(loadFiles, 5000);";
-  html += "</script>";
-  html += "</body></html>";
-  
-  server.send(200, "text/html", html);
-}
-
-// Listar archivos (JSON)
-void handleFileList() {
-  String json = "{\"files\":[";
-  
-  File root = SPIFFS.open("/");
-  File file = root.openNextFile();
-  bool first = true;
-  
-  while (file) {
-    if (!file.isDirectory()) {
-      if (!first) json += ",";
-      json += "{";
-      json += "\"name\":\"" + String(file.name()) + "\",";
-      json += "\"size\":" + String(file.size());
-      json += "}";
-      first = false;
-    }
-    file = root.openNextFile();
-  }
-  
-  json += "],";
-  json += "\"used\":" + String(SPIFFS.usedBytes()) + ",";
-  json += "\"total\":" + String(SPIFFS.totalBytes());
-  json += "}";
-  
-  server.send(200, "application/json", json);
-}
-
-// Descargar archivo
+// Función corregida para descargar archivos
 void handleFileDownload() {
   if (!server.hasArg("file")) {
     server.send(400, "text/plain", "Parámetro 'file' requerido");
@@ -294,26 +203,52 @@ void handleFileDownload() {
   }
   
   String filename = server.arg("file");
-  File file = SPIFFS.open(filename, "r");
   
-  if (!file) {
-    server.send(404, "text/plain", "Archivo no encontrado");
+  // Asegurar que el nombre del archivo comience con "/"
+  if (!filename.startsWith("/")) {
+    filename = "/" + filename;
+  }
+  
+  Serial.println("📥 Intentando descargar: " + filename);
+  
+  // Verificar que el archivo existe
+  if (!SPIFFS.exists(filename)) {
+    Serial.println("❌ Archivo no encontrado: " + filename);
+    server.send(404, "text/plain", "Archivo no encontrado: " + filename);
     return;
   }
   
-  // Configurar headers para descarga
-  server.sendHeader("Content-Disposition", "attachment; filename=" + filename);
-  server.sendHeader("Content-Type", "text/plain");
-  server.sendHeader("Content-Length", String(file.size()));
+  File file = SPIFFS.open(filename, "r");
   
-  // Enviar archivo
-  server.streamFile(file, "text/plain");
+  if (!file) {
+    Serial.println("❌ Error al abrir archivo: " + filename);
+    server.send(500, "text/plain", "Error al abrir archivo");
+    return;
+  }
+  
+  // Obtener tamaño del archivo
+  size_t fileSize = file.size();
+  Serial.println("📊 Tamaño del archivo: " + String(fileSize) + " bytes");
+  
+  // Configurar headers para descarga - nombre sin la barra inicial
+  String downloadName = filename.substring(1); // Quitar la "/" inicial
+  server.sendHeader("Content-Disposition", "attachment; filename=\"" + downloadName + "\"");
+  server.sendHeader("Content-Type", "application/octet-stream");
+  server.sendHeader("Content-Length", String(fileSize));
+  
+  // Método más simple: usar streamFile
+  size_t sent = server.streamFile(file, "application/octet-stream");
   file.close();
   
-  Serial.println("📥 Archivo descargado: " + filename);
+  if (sent == fileSize) {
+    Serial.println("✅ Archivo descargado exitosamente: " + filename);
+    Serial.println("📊 Bytes enviados: " + String(sent));
+  } else {
+    Serial.println("⚠️ Advertencia: Enviados " + String(sent) + "/" + String(fileSize) + " bytes");
+  }
 }
 
-// Eliminar archivo
+// Función corregida para eliminar archivos
 void handleFileDelete() {
   if (!server.hasArg("file")) {
     server.send(400, "text/plain", "Parámetro 'file' requerido");
@@ -322,14 +257,186 @@ void handleFileDelete() {
   
   String filename = server.arg("file");
   
+  // Asegurar que el nombre del archivo comience con "/"
+  if (!filename.startsWith("/")) {
+    filename = "/" + filename;
+  }
+  
+  Serial.println("🗑️ Intentando eliminar: " + filename);
+  
+  // Verificar que el archivo existe antes de intentar eliminarlo
+  if (!SPIFFS.exists(filename)) {
+    Serial.println("❌ Archivo no encontrado: " + filename);
+    server.send(404, "text/plain", "Archivo no encontrado: " + filename);
+    return;
+  }
+  
+  // Intentar eliminar el archivo
   if (SPIFFS.remove(filename)) {
-    server.send(200, "text/plain", "Archivo eliminado: " + filename);
-    Serial.println("🗑️ Archivo eliminado: " + filename);
+    Serial.println("✅ Archivo eliminado exitosamente: " + filename);
+    
+    // Respuesta HTML simple que redirija de vuelta
+    String html = "<!DOCTYPE html><html><head>";
+    html += "<meta charset='UTF-8'>";
+    html += "<meta http-equiv='refresh' content='2; url=/'>";
+    html += "<title>Archivo Eliminado</title>";
+    html += "<style>body{font-family:Arial;text-align:center;margin-top:50px;}</style>";
+    html += "</head><body>";
+    html += "<h2>✅ Archivo eliminado exitosamente</h2>";
+    html += "<p>Archivo: <strong>" + filename + "</strong></p>";
+    html += "<p>Redirigiendo en 2 segundos...</p>";
+    html += "<p><a href='/'>Volver al inicio</a></p>";
+    html += "</body></html>";
+    
+    server.send(200, "text/html", html);
   } else {
-    server.send(500, "text/plain", "Error eliminando archivo");
+    Serial.println("❌ Error eliminando archivo: " + filename);
+    
+    String html = "<!DOCTYPE html><html><head>";
+    html += "<meta charset='UTF-8'>";
+    html += "<meta http-equiv='refresh' content='3; url=/'>";
+    html += "<title>Error</title>";
+    html += "<style>body{font-family:Arial;text-align:center;margin-top:50px;color:red;}</style>";
+    html += "</head><body>";
+    html += "<h2>❌ Error eliminando archivo</h2>";
+    html += "<p>No se pudo eliminar: <strong>" + filename + "</strong></p>";
+    html += "<p>Redirigiendo en 3 segundos...</p>";
+    html += "<p><a href='/'>Volver al inicio</a></p>";
+    html += "</body></html>";
+    
+    server.send(500, "text/html", html);
   }
 }
 
+// Función mejorada para listar archivos (también corregida)
+void handleFileList() {
+  String json = "{\"files\":[";
+  
+  File root = SPIFFS.open("/");
+  if (!root) {
+    server.send(500, "application/json", "{\"error\":\"Cannot open root directory\"}");
+    return;
+  }
+  
+  File file = root.openNextFile();
+  bool first = true;
+  int fileCount = 0;
+  
+  while (file) {
+    if (!file.isDirectory()) {
+      if (!first) json += ",";
+      
+      String fileName = String(file.name());
+      size_t fileSize = file.size();
+      
+      json += "{";
+      json += "\"name\":\"" + fileName + "\",";
+      json += "\"size\":" + String(fileSize);
+      json += "}";
+      
+      first = false;
+      fileCount++;
+    }
+    file = root.openNextFile();
+  }
+  
+  json += "],";
+  json += "\"count\":" + String(fileCount) + ",";
+  json += "\"used\":" + String(SPIFFS.usedBytes()) + ",";
+  json += "\"total\":" + String(SPIFFS.totalBytes());
+  json += "}";
+  
+  Serial.println("📋 Listando " + String(fileCount) + " archivos");
+  server.send(200, "application/json", json);
+}
+
+// Página principal mejorada con mejor manejo de errores
+void handleRoot() {
+  String html = "<!DOCTYPE html><html><head>";
+  html += "<title>ESP32 File Manager</title>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<meta charset='UTF-8'>";
+  html += "<style>";
+  html += "body { font-family: Arial; margin: 20px; background: #f0f0f0; }";
+  html += ".container { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }";
+  html += ".file-item { background: #f8f9fa; margin: 10px 0; padding: 15px; border-radius: 5px; border-left: 4px solid #007bff; display: flex; justify-content: space-between; align-items: center; }";
+  html += ".file-info { flex-grow: 1; }";
+  html += ".file-name { font-weight: bold; color: #333; word-break: break-all; }";
+  html += ".file-size { color: #666; font-size: 0.9em; }";
+  html += ".btn { padding: 8px 15px; margin: 0 5px; text-decoration: none; border-radius: 4px; font-size: 0.9em; display: inline-block; }";
+  html += ".btn-download { background: #28a745; color: white; }";
+  html += ".btn-delete { background: #dc3545; color: white; }";
+  html += ".btn:hover { opacity: 0.8; }";
+  html += ".header { text-align: center; margin-bottom: 30px; }";
+  html += ".header h1 { color: #333; }";
+  html += ".stats { background: #e3f2fd; padding: 15px; border-radius: 5px; margin-bottom: 20px; }";
+  html += ".error { background: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px; margin: 10px 0; }";
+  html += ".loading { text-align: center; padding: 20px; color: #666; }";
+  html += "</style></head><body>";
+  
+  html += "<div class='container'>";
+  html += "<div class='header'>";
+  html += "<h1>🗂️ ESP32 File Manager</h1>";
+  html += "<p>Administra archivos del sistema SPIFFS</p>";
+  html += "</div>";
+  html += "<div id='stats' class='stats'>Cargando estadísticas...</div>";
+  html += "<div id='files' class='loading'>Cargando archivos...</div>";
+  html += "</div>";
+  
+  html += "<script>";
+  html += "let errorCount = 0;";
+  html += "function showError(msg) {";
+  html += "  document.getElementById('files').innerHTML = '<div class=\"error\">❌ Error: ' + msg + '</div>';";
+  html += "}";
+  html += "function loadFiles() {";
+  html += "  fetch('/list')";
+  html += "    .then(response => {";
+  html += "      if (!response.ok) throw new Error('HTTP ' + response.status);";
+  html += "      return response.json();";
+  html += "    })";
+  html += "    .then(data => {";
+  html += "      errorCount = 0;"; // Reset error count on success
+  html += "      let statsHtml = 'Archivos: ' + data.count + ' | ';";
+  html += "      statsHtml += 'Usado: ' + (data.used/1024).toFixed(1) + ' KB | ';";
+  html += "      statsHtml += 'Total: ' + (data.total/1024).toFixed(1) + ' KB';";
+  html += "      document.getElementById('stats').innerHTML = statsHtml;";
+  html += "      let html = '';";
+  html += "      if (data.files && data.files.length > 0) {";
+  html += "        data.files.forEach(file => {";
+  html += "          let fileName = file.name.startsWith('/') ? file.name.substring(1) : file.name;";
+  html += "          html += '<div class=\"file-item\">';";
+  html += "          html += '<div class=\"file-info\">';";
+  html += "          html += '<div class=\"file-name\">' + file.name + '</div>';";
+  html += "          html += '<div class=\"file-size\">' + (file.size/1024).toFixed(2) + ' KB (' + file.size + ' bytes)</div>';";
+  html += "          html += '</div>';";
+  html += "          html += '<div>';";
+  html += "          html += '<a href=\"/download?file=' + encodeURIComponent(file.name) + '\" class=\"btn btn-download\" target=\"_blank\">📥 Descargar</a>';";
+  html += "          html += '<a href=\"/delete?file=' + encodeURIComponent(file.name) + '\" class=\"btn btn-delete\" onclick=\"return confirm(\\'¿Eliminar ' + file.name + '?\\')\">🗑️ Eliminar</a>';";
+  html += "          html += '</div>';";
+  html += "          html += '</div>';";
+  html += "        });";
+  html += "      } else {";
+  html += "        html = '<div class=\"file-item\"><div class=\"file-info\">📂 No hay archivos guardados</div></div>';";
+  html += "      }";
+  html += "      document.getElementById('files').innerHTML = html;";
+  html += "    })";
+  html += "    .catch(err => {";
+  html += "      errorCount++;";
+  html += "      console.error('Error loading files:', err);";
+  html += "      if (errorCount < 3) {";
+  html += "        setTimeout(loadFiles, 2000);"; // Retry after 2 seconds
+  html += "      } else {";
+  html += "        showError('No se pueden cargar los archivos. Error: ' + err.message);";
+  html += "      }";
+  html += "    });";
+  html += "}";
+  html += "loadFiles();";
+  html += "setInterval(function() { if (errorCount < 3) loadFiles(); }, 5000);";
+  html += "</script>";
+  html += "</body></html>";
+  
+  server.send(200, "text/html", html);
+}
 // === FUNCIONES ORIGINALES ===
 
 void addToHistory(const String& text) {
