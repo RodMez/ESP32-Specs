@@ -1,4 +1,4 @@
-// ESP32-C3 MINI - EXPLORADOR TOTAL v6.4
+// ESP32-C3 MINI - EXPLORADOR TOTAL
 // Versión con Web File Manager integrado
 #include <WiFi.h>
 #include <esp_system.h>
@@ -35,12 +35,14 @@ void setup() {
   EEPROM.begin(EEPROM_SIZE);
   
   if (!SPIFFS.begin(true)) {
-    Serial.println("⚠️ Error inicializando SPIFFS - Exportación limitada");
+    Serial.println(" Error inicializando ");
   }
   
+  delay(500);
+
   Serial.println("\n╔═══════════════════════════════════════════╗");
-  Serial.println("║  🚀 ESP32-C3 MINI - EXPLORADOR TOTAL v6.4   ║");
-  Serial.println("║  🔧 Con Web File Manager integrado        ║");
+  Serial.println("║   ESP32-C3 MINI - EXPLORADOR TOTAL     ║");
+  Serial.println("║                                           ║");
   Serial.println("╚═══════════════════════════════════════════╝");
   
   delay(500);
@@ -66,9 +68,9 @@ void loop() {
 }
 
 void mostrarMenu() {
-  Serial.println("\n📋 MENÚ DE EXPLORACIÓN:");
+  Serial.println("\n📋 MENÚ DE OPCIONES:");
   Serial.println("┌─────────────────────────────────────────┐");
-  Serial.println("│ 1 - Información del Chip (ESTABILIZADO)│");
+  Serial.println("│ 1 - Información del Chip                │");
   Serial.println("│ 2 - Análisis de Memoria                │");
   Serial.println("│ 3 - Test de WiFi                       │");
   Serial.println("│ 4 - Test de GPIOs                      │");
@@ -78,11 +80,11 @@ void mostrarMenu() {
   Serial.println("│ 8 - Benchmark de Rendimiento           │");
   Serial.println("│ 9 - DIAGNÓSTICO COMPLETO               │");
   Serial.println("│ A - Test de Bluetooth                  │"); 
-  Serial.println("│ W - Iniciar Servidor Web 🌐 NUEVO!     │");
-  Serial.println("│ X - Exportar a archivo TXT             │");
-  Serial.println("│ Y - Mostrar archivos guardados         │");
+  Serial.println("│ W - Iniciar Servidor Web               │");
+  Serial.println("│ X - Exportar a archivo TXT            │");
+  Serial.println("│ Y - Mostrar archivos guardados        │");
   Serial.println("│ C - Limpiar Historial                  │");
-  Serial.println("│                                         │");
+  Serial.println("│                                       │");
   Serial.println("│ help - Mostrar este menú               │");
   Serial.println("│ reset - Reiniciar                      │");
   Serial.println("│ sleep - Deep Sleep                     │");
@@ -140,22 +142,22 @@ void ejecutarComando(String cmd) {
     return;
   }
   else if (cmd == "reset") {
-    Serial.println("🔄 Reiniciando...");
+    Serial.println(" Reiniciando...");
     delay(1000);
     ESP.restart();
   }
   else if (cmd == "sleep") {
-    Serial.println("💤 Entrando en Deep Sleep. Presiona RESET para despertar.");
+    Serial.println("Modo Deep Sleep. Use RESET para despertar.");
     delay(500);
     esp_deep_sleep_start();
   }
   else {
-    Serial.println("❌ Comando no reconocido: '" + cmd + "'");
-    Serial.println("💡 Escribe 'help' para ver opciones");
+    Serial.println(" Comando no reconocido: '" + cmd + "'");
+    Serial.println(" Escriba 'help' para ver opciones");
   }
   
   Serial.println("\n" + String(char(196)) + String(char(196)) + String(char(196)) + " Listo " + String(char(196)) + String(char(196)) + String(char(196)));
-  Serial.print("💬 Siguiente comando: ");
+  Serial.print(" Siguiente comando: ");
 }
 
 // === FUNCIONES DEL SERVIDOR WEB ===
@@ -190,12 +192,11 @@ void comandoWebServer() {
   Serial.println("\n📱 INSTRUCCIONES:");
   Serial.println("1. Conecta tu teléfono/PC a la red WiFi: " + String(ap_ssid));
   Serial.println("2. Usa la contraseña: " + String(ap_password));
-  Serial.println("3. Abre el navegador y ve a: http://192.168.4.1");
-  Serial.println("4. ¡Ya puedes descargar tus archivos!");
+  Serial.println("3. Abra el navegador y ve a: http://192.168.4.1");
   Serial.println("\n⚠️ El servidor quedará activo. Usa 'reset' para reiniciar.");
 }
 
-// Función corregida para descargar archivos
+// Función para descargar archivos
 void handleFileDownload() {
   if (!server.hasArg("file")) {
     server.send(400, "text/plain", "Parámetro 'file' requerido");
@@ -236,7 +237,7 @@ void handleFileDownload() {
   server.sendHeader("Content-Type", "application/octet-stream");
   server.sendHeader("Content-Length", String(fileSize));
   
-  // Método más simple: usar streamFile
+  //  usar streamFile
   size_t sent = server.streamFile(file, "application/octet-stream");
   file.close();
   
@@ -248,7 +249,7 @@ void handleFileDownload() {
   }
 }
 
-// Función corregida para eliminar archivos
+// Función para eliminar archivos
 void handleFileDelete() {
   if (!server.hasArg("file")) {
     server.send(400, "text/plain", "Parámetro 'file' requerido");
@@ -308,7 +309,7 @@ void handleFileDelete() {
   }
 }
 
-// Función mejorada para listar archivos (también corregida)
+// Función para listar archivos 
 void handleFileList() {
   String json = "{\"files\":[";
   
@@ -395,7 +396,7 @@ void handleRoot() {
   html += "      return response.json();";
   html += "    })";
   html += "    .then(data => {";
-  html += "      errorCount = 0;"; // Reset error count on success
+  html += "      errorCount = 0;"; 
   html += "      let statsHtml = 'Archivos: ' + data.count + ' | ';";
   html += "      statsHtml += 'Usado: ' + (data.used/1024).toFixed(1) + ' KB | ';";
   html += "      statsHtml += 'Total: ' + (data.total/1024).toFixed(1) + ' KB';";
@@ -424,7 +425,7 @@ void handleRoot() {
   html += "      errorCount++;";
   html += "      console.error('Error loading files:', err);";
   html += "      if (errorCount < 3) {";
-  html += "        setTimeout(loadFiles, 2000);"; // Retry after 2 seconds
+  html += "        setTimeout(loadFiles, 2000);"; // Reintentar en 2 segundos
   html += "      } else {";
   html += "        showError('No se pueden cargar los archivos. Error: ' + err.message);";
   html += "      }";
@@ -437,7 +438,7 @@ void handleRoot() {
   
   server.send(200, "text/html", html);
 }
-// === FUNCIONES ORIGINALES ===
+// === FUNCIONES PARA OBTENCION DE DATOS ===
 
 void addToHistory(const String& text) {
   int len = text.length();
@@ -462,9 +463,9 @@ void limpiarHistorial() {
   addToHistory("--- Historial limpiado manualmente ---\n");
 }
 
-// === 1. EXPLORACIÓN DEL CHIP - VERSIÓN ESTABILIZADA ===
+// === 1. EXPLORACIÓN DEL CHIP  ===
 void explorarChipSeguro() {
-  String output = "\n🔍 ANÁLISIS DEL CHIP ESP32-C3 (ESTABILIZADO)\n";
+  String output = "\n🔍 ANÁLISIS DEL CHIP ESP32-C3 \n";
   output += "============================================\n";
   
   esp_chip_info_t chip_info;
@@ -511,9 +512,9 @@ void explorarChipSeguro() {
   addToHistory(output);
 }
 
-// === X. EXPORTAR DATOS - VERSIÓN MEJORADA CON ARCHIVOS REALES ===
+// === X. EXPORTAR DATOS ===
 void exportarDatosArchivo() {
-  Serial.println("\n📤 EXPORTACIÓN DE DATOS MEJORADA");
+  Serial.println("\n📤 EXPORTACIÓN DE DATOS");
   Serial.println("=================================");
   
   if (historialIdx == 0) {
@@ -555,9 +556,7 @@ void exportarDatosArchivo() {
     Serial.println("🎯 OPCIONES DE ACCESO:");
     Serial.println("1. Usar comando 'W' para servidor web");
     Serial.println("2. Usar comando 'Y' para ver contenido");
-    Serial.println("3. Conectar ESP32 como dispositivo USB*");
-    Serial.println("");
-    Serial.println("*Requiere código adicional para USB Mass Storage");
+    Serial.println("3. Conectar ESP32 como dispositivo USB");
     
     Serial.println("💾 Guardando respaldo en EEPROM...");
     int bytesToSave = min(historialIdx, EEPROM_SIZE - 1);
@@ -960,7 +959,7 @@ void benchmark() {
   output += String(tiempoGPIO) + " μs\n";
   Serial.println(String(tiempoGPIO) + " μs");
   
-  output += "💾 Test memoria (concatenación)... ";
+  output += "💾 Test memoria ... ";
   Serial.print(output);
   addToHistory(output);
   output = "";
