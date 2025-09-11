@@ -41,7 +41,7 @@ void setup() {
   delay(500);
 
   Serial.println("\n╔═══════════════════════════════════════════╗");
-  Serial.println("║   ESP32-C3 MINI - EXPLORADOR TOTAL     ║");
+  Serial.println("║   ESP32-C3 MINI - EXPLORADOR TOTAL        ║");
   Serial.println("║                                           ║");
   Serial.println("╚═══════════════════════════════════════════╝");
   
@@ -276,7 +276,7 @@ void handleFileDelete() {
   if (SPIFFS.remove(filename)) {
     Serial.println("✅ Archivo eliminado exitosamente: " + filename);
     
-    // Respuesta HTML simple que redirija de vuelta
+    // Respuesta HTML  que redirije de vuelta
     String html = "<!DOCTYPE html><html><head>";
     html += "<meta charset='UTF-8'>";
     html += "<meta http-equiv='refresh' content='2; url=/'>";
@@ -506,7 +506,6 @@ void explorarChipSeguro() {
   output += "• SDK Version: " + String(esp_get_idf_version()) + "\n";
   
   output += "\n✅ Análisis del chip completado (modo seguro)\n";
-  output += "ℹ️ Esta versión evita llamadas que pueden causar reinicios\n";
 
   Serial.print(output);
   addToHistory(output);
@@ -930,7 +929,7 @@ void benchmark() {
   String output = "\n🏃 BENCHMARK DE RENDIMIENTO\n";
   output += "============================\n";
   
-  output += "🧮 Test matemático (10k operaciones)... ";
+  output += "🧮 Test matemático de 10k operaciones ";
   Serial.print(output);
   addToHistory(output);
   output = "";
